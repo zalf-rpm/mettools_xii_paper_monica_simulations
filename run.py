@@ -50,11 +50,11 @@ async def main():
 
     ws_data = [
         {"name": "dd-klotzsche", "sr": "capnp://localhost:9991/klotzsche", "cap": None, "lat_lon": (51.1348, 13.8303)},
-        {"name": "gera", "sr": "capnp://localhost:9991/gera", "cap": None, "lat_lon": (50.8766, 12.1460)},
-        {"name": "laucha-unstrut", "sr": "capnp://localhost:9991/laucha", "cap": None, "lat_lon": (51.2481, 11.7179)},
-        {"name": "naumburg", "sr": "capnp://localhost:9991/naumburg", "cap": None, "lat_lon": (51.1239, 11.8225)},
-        {"name": "plauen", "sr": "capnp://localhost:9991/plauen", "cap": None, "lat_lon": (50.59526, 12.19376)},
-        {"name": "zeitz", "sr": "capnp://localhost:9991/zeitz", "cap": None, "lat_lon": (51.0229, 12.1590)},
+        {"name": "gera", "sr": "capnp://localhost:9992/gera", "cap": None, "lat_lon": (50.8766, 12.1460)},
+        {"name": "laucha-unstrut", "sr": "capnp://localhost:9993/laucha", "cap": None, "lat_lon": (51.2481, 11.7179)},
+        {"name": "naumburg", "sr": "capnp://localhost:9994/naumburg", "cap": None, "lat_lon": (51.1239, 11.8225)},
+        {"name": "plauen", "sr": "capnp://localhost:9995/plauen", "cap": None, "lat_lon": (50.59526, 12.19376)},
+        {"name": "zeitz", "sr": "capnp://localhost:9996/zeitz", "cap": None, "lat_lon": (51.0229, 12.1590)},
     ]
 
     use_exact_co2_measurements = False
@@ -104,10 +104,10 @@ async def main():
         "sim": sim_json,
         "climate": "" #climate_csv
     })
-    crops = env_template["params"]["cropParameters"]["cropRotations"]
-    env_template["params"]["cropParameters"]["cropRotations"] = []
-    env_template["csvViaHeaderOptions"] = sim_json["climate.csv-options"]
-    env_template["pathToClimateCSV"] = config["climate.csv"]
+    crops = env_template["cropRotations"]
+    env_template["cropRotations"] = []
+    #env_template["csvViaHeaderOptions"] = sim_json["climate.csv-options"]
+    #env_template["pathToClimateCSV"] = config["climate.csv"]
 
     conman = common.ConnectionManager()
     soil_service = await conman.try_connect(config["soil_sr"], cast_as=soil_capnp.Service, retry_secs=1)
@@ -124,7 +124,7 @@ async def main():
 
     year_to_co2 = {}
     def co2_f(year):
-        return math.exp(3457 + -0.00283*year + 5.78521E-10*year^2)
+        return 0.0062*math.exp(0.0055*year)
     for year in range(1961, 2021):
         if year in co2_measurements and use_exact_co2_measurements:
             year_to_co2[year] = co2_measurements[year]
@@ -142,7 +142,7 @@ async def main():
                 "mandatory": ["soilType", "sand", "clay", "organicCarbon",
                               "bulkDensity"],
                 "optional": ["pH"]})).profiles
-            wst_sr_to_caps[data["sr"]]["soil"] = soil_profiles[0]
+            wst_sr_to_caps[data["sr"]]["soil_profile"] = soil_profiles[0]
 
     variants = []
     for data in ws_data:
@@ -166,16 +166,16 @@ async def main():
 
     for var in variants:
         # set irrigations
-        env_template["params"]["simParameters"]["UseAutomaticIrrigation"] = var["irrig"]
+        env_template["params"]["simulationParameters"]["UseAutomaticIrrigation"] = var["irrig"]
 
         # set latitude
-        env_template["params"]["siteParameters"]["Latitude"] = var["lat_lon"][0]
+        env_template["params"]["siteParameters"]["Latitude"] = var["lat"]
 
         # set CO2
         if var["co2"] == "measured":
-            env_template["params"]["siteParameters"]["EnvironmentParameters"]["AtmosphericCO2s"] = year_to_co2
+            env_template["params"]["userEnvironmentParameters"]["AtmosphericCO2s"] = year_to_co2
         else:
-            env_template["params"]["siteParameters"]["EnvironmentParameters"]["AtmosphericCO2"] = var["co2"]
+            env_template["params"]["userEnvironmentParameters"]["AtmosphericCO2"] = var["co2"]
 
         # set time series
         time_series_cap = wst_sr_to_caps[var["sr"]]["time_series"]
@@ -183,13 +183,13 @@ async def main():
             continue
 
         # set crop
-        env_template["params"]["cropParameters"]["cropRotation"][0]["worksteps"][0]["crop"] = crops[var["crop_id"]]
+        env_template["cropRotation"][0]["worksteps"][0]["crop"] = crops[var["crop_id"]]
 
         # run MONICA
         rr = monica_service.run_request()
         env = rr.init("env")
         env.timeSeries = time_series_cap
-        env.soilProfile = wst_sr_to_caps[var["sr"]]["soil"]
+        env.soilProfile = wst_sr_to_caps[var["sr"]]["soil_profile"]
         env.rest = common_capnp.StructuredText.new_message(value=json.dumps(env_template),
                                                            structure={"json": None})
         res = (await rr.send()).result
