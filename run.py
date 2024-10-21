@@ -24,6 +24,7 @@ import math
 import os
 from pathlib import Path
 import sys
+import zmq
 from zalfmas_common import common
 from zalfmas_common.model import monica_io
 import zalfmas_capnp_schemas
@@ -41,7 +42,7 @@ async def main():
         "crop.json": os.path.join(os.path.dirname(__file__), "crop.json"),
         "site.json": os.path.join(os.path.dirname(__file__), "site.json"),
         #"monica_sr": "capnp://VPRTzs3dLITFlLjsB6RvUTn6BGoG26_9sgn2NLoDauQ@10.10.88.69:36199/b9c9cb56-f969-4a5c-9bf2-4eed26f67e27",
-        "monica_sr": "capnp://T6SMqSvAVGo5uMnXV7j9lHHbr9vIF9J9lJFc2wSIlAM@10.10.25.19:9920/monica",
+        "monica_sr": "capnp://localhost:9920/monica",
         "time_series_sr": "capnp://Zsk-czXFwF8hwu0wpsxf8N22L7uohKMf00WDL2H0_xw=@10.10.88.69:45722/5a19ce5a-dd3d-48b3-a23b-d3cb10f64310",
         "soil_sr": "capnp://localhost:9981/buek200",
         "out": os.path.join(os.path.dirname(__file__), "out"),
@@ -111,8 +112,12 @@ async def main():
 
     conman = common.ConnectionManager()
     soil_service = await conman.try_connect(config["soil_sr"], cast_as=soil_capnp.Service, retry_secs=1)
-    monica_service = await conman.try_connect(config["monica_sr"], cast_as=model_capnp.EnvInstance, retry_secs=1)
+    #monica_service = await conman.try_connect(config["monica_sr"], cast_as=model_capnp.EnvInstance, retry_secs=1)
     #time_series = await conman.try_connect(config["time_series_sr"], cast_as=climate_capnp.TimeSeries, retry_secs=1)
+
+    context = zmq.Context()
+    socket = context.socket(zmq.REQ)
+    socket.connect("tcp://localhost:6666")
 
     #capnp_env = model_capnp.Env.new_message()
     #capnp_env.timeSeries = time_series
@@ -131,10 +136,39 @@ async def main():
         else:
             year_to_co2[year] = co2_f(year)
 
-    wst_sr_to_caps = defaultdict(lambda: {"time_series": None, "soil_profile": None})
+    fetch_data = True
+    wst_sr_to_caps = defaultdict(lambda: {"time_series": None, "ts_data": None,
+                                          "soil_profile": None, "sp_data": None})
     for data in ws_data:
         if data["cap"] is None:
-            wst_sr_to_caps[data["sr"]]["time_series"] = await conman.try_connect(data["sr"], cast_as=climate_capnp.TimeSeries, retry_secs=1)
+            ts_cap = await conman.try_connect(data["sr"], cast_as=climate_capnp.TimeSeries, retry_secs=1)
+            if ts_cap is not None and fetch_data:
+                ts_header = (await ts_cap.header()).header
+                ts_range = await ts_cap.range()
+                ts_data = (await ts_cap.dataT()).data
+                data_ = {
+                    "startDate": f"{ts_range.startDate.year:04d}-{ts_range.startDate.month:02d}-{ts_range.startDate.day:02d}",
+                    "endDate": f"{ts_range.endDate.year:04d}-{ts_range.endDate.month:02d}-{ts_range.endDate.day:02d}",
+                    "data": defaultdict(list),
+                }
+                for i, h in enumerate(ts_header):
+                    if h == "tmin":
+                        data_["data"]["3"] = list(ts_data[i])
+                    elif h == "tavg":
+                        data_["data"]["4"] = list(ts_data[i])
+                    elif h == "tmax":
+                        data_["data"]["5"] = list(ts_data[i])
+                    elif h == "precip":
+                        data_["data"]["6"] = list(ts_data[i])
+                    elif h == "relhumid":
+                        data_["data"]["12"] = list(ts_data[i])
+                    elif h == "wind":
+                        data_["data"]["9"] = list(ts_data[i])
+                    elif h == "globrad":
+                        data_["data"]["8"] = list(ts_data[i])
+                wst_sr_to_caps[data["sr"]]["ts_data"] = data_
+            wst_sr_to_caps[data["sr"]]["time_series"] = ts_cap
+
             if wst_sr_to_caps[data["sr"]]["time_series"] is None:
                 print("Could not connect to time series service via sr:", data["sr"])
             lat, lon = data["lat_lon"]
@@ -142,7 +176,28 @@ async def main():
                 "mandatory": ["soilType", "sand", "clay", "organicCarbon",
                               "bulkDensity"],
                 "optional": ["pH"]})).profiles
-            wst_sr_to_caps[data["sr"]]["soil_profile"] = soil_profiles[0]
+            sp_cap = soil_profiles[0]
+            if sp_cap is not None and fetch_data:
+                sp_layers = (await sp_cap.data()).layers
+                sp_data = []
+                for layer in sp_layers:
+                    layer_desc = {"Thickness": [layer.size, "m"]}
+                    for prop in layer.properties:
+                        if prop.name == "soilType" and prop.which == "type":
+                            layer_desc["KA5TextureClass"] = prop.type
+                        elif prop.name == "sand" and prop.which == "f32Value":
+                            layer_desc["Sand"] = prop.f32Value / 100.0
+                        elif prop.name == "clay" and prop.which == "f32Value":
+                            layer_desc["Clay"] = prop.f32Value / 100.0
+                        elif prop.name == "organicCarbon" and prop.which == "f32Value":
+                            layer_desc["SoilOrganicCarbon"] = [prop.f32Value, "%"]
+                        elif prop.name == "bulkDensity" and prop.which == "f32Value":
+                            layer_desc["SoilBulkDensity"] = [prop.f32Value, "kg/m^3"]
+                        elif prop.name == "pH" and prop.which == "f32Value":
+                            layer_desc["pH"] = [prop.f32Value, "pH"]
+                    sp_data.append(layer_desc)
+                wst_sr_to_caps[data["sr"]]["sp_data"] = sp_data
+            wst_sr_to_caps[data["sr"]]["soil_profile"] = sp_cap
 
     variants = []
     for data in ws_data:
@@ -164,7 +219,7 @@ async def main():
                     var4["irrig"] = irrig
                     variants.append(var4)
 
-    for var in variants:
+    for v, var in enumerate(variants):
         # set irrigations
         env_template["params"]["simulationParameters"]["UseAutomaticIrrigation"] = var["irrig"]
 
@@ -177,32 +232,51 @@ async def main():
         else:
             env_template["params"]["userEnvironmentParameters"]["AtmosphericCO2"] = var["co2"]
 
+        env_template["customId"] = f"{v:02d}_{var['name']}_crop-{var['crop_id']}_co2-{var['co2']}_irr-{var['irrig']}"
+
         # set time series
         time_series_cap = wst_sr_to_caps[var["sr"]]["time_series"]
         if time_series_cap is None:
             continue
+        if fetch_data:
+            env_template["climateData"] = wst_sr_to_caps[var["sr"]]["ts_data"]
+
+        # set soil profile
+        soil_profile_cap = wst_sr_to_caps[var["sr"]]["soil_profile"]
+        if soil_profile_cap is None:
+            continue
+        if fetch_data:
+            env_template["params"]["siteParameters"]["SoilProfileParameters"] = wst_sr_to_caps[var["sr"]]["sp_data"]
 
         # set crop
         env_template["cropRotation"][0]["worksteps"][0]["crop"] = crops[var["crop_id"]]
 
         # run MONICA
-        rr = monica_service.run_request()
-        env = rr.init("env")
-        env.timeSeries = time_series_cap
-        env.soilProfile = wst_sr_to_caps[var["sr"]]["soil_profile"]
-        env.rest = common_capnp.StructuredText.new_message(value=json.dumps(env_template),
-                                                           structure={"json": None})
-        res = (await rr.send()).result
-        stv = res.as_struct(common_capnp.StructuredText).value
-        print(stv)
-        res_json = json.loads(stv)
+        if fetch_data:
+            socket.send_json(env_template)
+            res_json = socket.recv_json()
+        else:
+            rr = monica_service.run_request()
+            env = rr.init("env")
+            env.timeSeries = time_series_cap
+            env.soilProfile = wst_sr_to_caps[var["sr"]]["soil_profile"]
+            env.rest = common_capnp.StructuredText.new_message(value=json.dumps(env_template),
+                                                               structure={"json": None})
+            res = (await rr.send()).result
+            st = res.as_struct(common_capnp.StructuredText)
+            stv = res.as_struct(common_capnp.StructuredText).value
+            print(stv)
+            print("len(stv):", len(stv))
+            res_json = json.loads(stv)
+
         csvs = create_csv(res_json)
         for section_name, csv_content in csvs:
-            out_folder_path = config["out"] + "/" + var["name"]
+            out_folder_path = config["out"] + "/" + env_template["customId"]
             if not os.path.exists(out_folder_path):
                 os.makedirs(out_folder_path)
             with open(Path(out_folder_path) / f"{section_name}.csv", "w", newline="") as _:
                 _.write(csv_content)
+        print("Variant:", v, "->", env_template["customId"], "done")
 
     print("done")
 

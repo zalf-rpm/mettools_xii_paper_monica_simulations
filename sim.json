@@ -25,29 +25,61 @@
 		},
 		
 		"events" : [
-			"crop", [
-				"CM-count",
+			"daily", [
+				"Date",
+				"DOY",
 				"Crop",
+				"Stage",
+				"Yield",
+				"LAI",
+				"Act_ET",
+				"Tra|ActTransp_mm",
+				"Act_Ev|ActEvap_mm",
+				"Pot_ET",
+				"Evaporation|Evap_mm",
+				"Evapotranspiration|ET_mm",
+				"Transpiration|Transp_mm",
+				"Recharge",
+				"Irrig",
+				"SurfTemp",
+				["STemp|SoilTemp_10cm", 1],
+				["Mois|SM_0-20cm", [1,3, "AVG"]],
+				"NPP",
+				"GPP"
+			],
+
+			"crop", [
+				"Year",
+				"Crop",
+				["Count|length_growth_period", "SUM"],
 				["Yield", "LAST"],
-				["Date|sowing", "FIRST"],
-				["Date|harvest", "LAST"]
+				["LAI", "MAX"],
+				["Act_ET", "SUM"],
+				["Tra|ActTransp_mm", "SUM"],
+				["Act_Ev|ActEvap_mm", "SUM"],
+				["Pot_ET", "SUM"],
+				["Evaporation|Evap_mm", "SUM"],
+				["Evapotranspiration|ET_mm", "SUM"],
+				["Transpiration|Transp_mm", "SUM"],
+				["Recharge|GWR_mm", "SUM"],
+				["Irrig|Irrig_mm", "SUM"],
+				["STemp|ST_10cm", 1, "AVG"],
+				["Mois|SM_0-20cm", [1, 3, "AVG"], "AVG"],
+				["NPP", "SUM"],
+				["GPP", "SUM"]
 			],
 
 			"yearly", [
-				"Year", 
-				["N", [1, 3, "AVG"], "SUM"],
-				["RunOff", "SUM"], 
-				["NLeach", "SUM"], 
-				["Recharge", "SUM"]
-			],
-
-			"run", [
-				["Precip", "SUM"]
+				"Year",
+				["Recharge", "SUM"],
+				["Irrig", "SUM"],
+				["STemp|SoilTemp_10cm", 1, "AVG"],
+				["Mois|SM_0-20cm", [1, 3, "AVG"], "AVG"]
 			]
 		]
 	},
 
-	"UseSecondaryYields": true,
+	"UseSecondaryYields": false,
 	"NitrogenResponseOn": true,
 	"WaterDeficitResponseOn": true,
 	"EmergenceMoistureControlOn": true,

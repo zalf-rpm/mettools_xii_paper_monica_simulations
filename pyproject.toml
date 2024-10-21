@@ -10,7 +10,8 @@ python = "^3.10"
 pycapnp = "^2.0.0"
 zalfmas-common = "^0.1.5"
 zalfmas-services = "^0.1.1"
-
+zalfmas-capnp-schemas = "^0.1.2"
+pyzmq = "^26.2.0"
 
 [build-system]
 requires = ["poetry-core"]
