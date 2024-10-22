@@ -29,6 +29,7 @@
 				"Date",
 				"DOY",
 				"Crop",
+				"AtmCO2|CO2_ppm",
 				"Stage",
 				"Yield",
 				"LAI",
@@ -49,7 +50,7 @@
 			],
 
 			"crop", [
-				["Year", "FIRST"],
+				["Year", "LAST"],
 				"Crop",
 				["DOY|Sowing_DOY", "FIRST"],
 				["DOY|Harvest_DOY", "LAST"],
@@ -90,12 +91,12 @@
 	},
 
 	"UseSecondaryYields": false,
-	"NitrogenResponseOn": true,
+	"NitrogenResponseOn": false,
 	"WaterDeficitResponseOn": true,
 	"EmergenceMoistureControlOn": true,
 	"EmergenceFloodingControlOn": true,
 
-	"UseNMinMineralFertilisingMethod": true,
+	"UseNMinMineralFertilisingMethod": false,
 	"NMinUserParams": { "min": 40, "max": 120, "delayInDays": 10 },
 	"NMinFertiliserPartition": ["include-from-file", "mineral-fertilisers/AN.json"],
 	"JulianDayAutomaticFertilising": 89,

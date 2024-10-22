@@ -228,8 +228,10 @@ async def main():
 
         # set CO2
         if var["co2"] == "measured":
+            env_template["params"]["userEnvironmentParameters"]["AtmosphericCO2"] = 0
             env_template["params"]["userEnvironmentParameters"]["AtmosphericCO2s"] = year_to_co2
         else:
+            env_template["params"]["userEnvironmentParameters"]["AtmosphericCO2s"] = {}
             env_template["params"]["userEnvironmentParameters"]["AtmosphericCO2"] = var["co2"]
 
         env_template["customId"] = f"{v:02d}_{var['name']}_crop-{var['crop_id']}_co2-{var['co2']}_irr-{var['irrig']}"
