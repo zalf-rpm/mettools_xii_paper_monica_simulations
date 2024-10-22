@@ -293,6 +293,7 @@ async def main():
             "Recharge": 2,
             "SoilTemp_10cm": 2
         })
+
         for section_name, csv_content in csvs:
             out_folder_path = config["out"] + "/" + env_template["customId"]
             if not os.path.exists(out_folder_path):
