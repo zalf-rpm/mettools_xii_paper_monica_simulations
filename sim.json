@@ -49,8 +49,10 @@
 			],
 
 			"crop", [
-				"Year",
+				["Year", "FIRST"],
 				"Crop",
+				["DOY|Sowing_DOY", "FIRST"],
+				["DOY|Harvest_DOY", "LAST"],
 				["Count|length_growth_period", "SUM"],
 				["Yield", "LAST"],
 				["LAI", "MAX"],
@@ -70,12 +72,20 @@
 			],
 
 			"yearly", [
-				"Year",
+				["Year", "FIRST"],
 				["Recharge", "SUM"],
 				["Irrig", "SUM"],
 				["STemp|SoilTemp_10cm", 1, "AVG"],
 				["Mois|SM_0-20cm", [1, 3, "AVG"], "AVG"]
-			]
+			],
+
+			"Stage-1", ["CM-count", "Year", "DOY"],
+			"Stage-2", ["CM-count", "Year", "DOY"],
+			"Stage-3", ["CM-count", "Year", "DOY"],
+			"Stage-4", ["CM-count", "Year", "DOY"],
+			"Stage-5", ["CM-count", "Year", "DOY"],
+			"Stage-6", ["CM-count", "Year", "DOY"],
+			"Stage-7", ["CM-count", "Year", "DOY"]
 		]
 	},
 
