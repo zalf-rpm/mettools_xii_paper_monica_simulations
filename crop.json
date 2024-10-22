@@ -20,13 +20,27 @@
         {
             "worksteps": [
                 {
-                    "date": "0000-10-11",
-                    "type": "Sowing",
-                    "crop": ""
+                    "type": "AutomaticSowing",
+                    "crop": "",
+                    "earliest-date": "0000-09-16",
+                    "latest-date": "0000-11-08",
+                    "min-temp": 18.5,
+                    "days-in-temp-window": 14,
+                    "min-%-asw": 0,
+                    "max-%-asw": 100,
+                    "max-3d-precip-sum": 2,
+                    "max-curr-day-precip": 0.1,
+                    "temp-sum-above-base-temp": 0,
+                    "base-temp": 0
                 },
                 {
-                    "date": "0000-09-23",
-                    "type": "Harvest"
+                    "type": "AutomaticHarvest",
+                    "latest-date": "0001-09-15",
+                    "min-%-asw": 0,
+                    "max-%-asw": 150,
+                    "max-3d-precip-sum": 999,
+                    "max-curr-day-precip": 999,
+                    "harvest-time": "maturity"
                 }
             ]
         }

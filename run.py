@@ -250,6 +250,14 @@ async def main():
 
         # set crop
         env_template["cropRotation"][0]["worksteps"][0]["crop"] = crops[var["crop_id"]]
+        if var["crop_id"] == "SM":
+            env_template["cropRotation"][0]["worksteps"][0]["earliest-date"] = "0000-04-01"
+            env_template["cropRotation"][0]["worksteps"][0]["latest-date"] = "0000-06-01"
+            env_template["cropRotation"][0]["worksteps"][1]["latest-date"] = "0000-10-31"
+        elif var["crop_id"] == "WW":
+            env_template["cropRotation"][0]["worksteps"][0]["earliest-date"] = "0000-09-16"
+            env_template["cropRotation"][0]["worksteps"][0]["latest-date"] = "0000-11-08"
+            env_template["cropRotation"][0]["worksteps"][1]["latest-date"] = "0001-09-15"
 
         # run MONICA
         if fetch_data:
@@ -269,7 +277,22 @@ async def main():
             print("len(stv):", len(stv))
             res_json = json.loads(stv)
 
-        csvs = create_csv(res_json)
+        csvs = create_csv(res_json, delimiter=";", round_ids={
+            "Act_ET": 2,
+            "ActTransp_mm": 2,
+            "ActEvap_mm": 2,
+            "Pot_ET": 2,
+            "Evap_mm": 2,
+            "ET_mm": 2,
+            "Transp_mm": 2,
+            "GWR_mm": 2,
+            "ST_10cm": 2,
+            "SM_0-20cm": 3,
+            "NPP": 3,
+            "GPP": 3,
+            "Recharge": 2,
+            "SoilTemp_10cm": 2
+        })
         for section_name, csv_content in csvs:
             out_folder_path = config["out"] + "/" + env_template["customId"]
             if not os.path.exists(out_folder_path):
@@ -280,7 +303,8 @@ async def main():
 
     print("done")
 
-def create_csv(msg, delimiter=",", include_header_row=True, include_units_row=True, include_time_agg=False):
+def create_csv(msg, delimiter=",", include_header_row=True, include_units_row=True, include_time_agg=False,
+               round_ids=None):
     out = []
 
     for section in msg.get("data", []):
@@ -297,7 +321,7 @@ def create_csv(msg, delimiter=",", include_header_row=True, include_units_row=Tr
                                                           include_units_row=include_units_row,
                                                           include_time_agg=include_time_agg):
                 writer.writerow(row)
-            for row in monica_io.write_output(output_ids, results):
+            for row in monica_io.write_output(output_ids, results, round_ids=round_ids):
                 writer.writerow(row)
 
         out.append((orig_spec.replace("\"", ""), sio.getvalue()))
