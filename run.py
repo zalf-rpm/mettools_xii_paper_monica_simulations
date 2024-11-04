@@ -14,6 +14,8 @@
 # Copyright (C: Leibniz Centre for Agricultural Landscape Research (ZALF)
 
 import asyncio
+import time
+
 import capnp
 from collections import defaultdict
 import csv
@@ -27,6 +29,7 @@ import sys
 import zmq
 from zalfmas_common import common
 from zalfmas_common.model import monica_io
+from zalfmas_common.soil import soil_io
 import zalfmas_capnp_schemas
 sys.path.append(os.path.dirname(zalfmas_capnp_schemas.__file__))
 import common_capnp
@@ -36,7 +39,6 @@ import climate_capnp
 
 
 async def main():
-
     config = {
         "sim.json": os.path.join(os.path.dirname(__file__), "sim.json"),
         "crop.json": os.path.join(os.path.dirname(__file__), "crop.json"),
@@ -112,20 +114,12 @@ async def main():
 
     conman = common.ConnectionManager()
     soil_service = await conman.try_connect(config["soil_sr"], cast_as=soil_capnp.Service, retry_secs=1)
-    #monica_service = await conman.try_connect(config["monica_sr"], cast_as=model_capnp.EnvInstance, retry_secs=1)
+    monica_service = await conman.try_connect(config["monica_sr"], cast_as=model_capnp.EnvInstance, retry_secs=1)
     #time_series = await conman.try_connect(config["time_series_sr"], cast_as=climate_capnp.TimeSeries, retry_secs=1)
 
     context = zmq.Context()
     socket = context.socket(zmq.REQ)
     socket.connect("tcp://localhost:6666")
-
-    #capnp_env = model_capnp.Env.new_message()
-    #capnp_env.timeSeries = time_series
-    #capnp_env.soilProfile = soil_profiles[0]
-    #capnp_env.rest = common_capnp.StructuredText.new_message()
-    #capnp_env.rest = common_capnp.StructuredText.new_message(value=json.dumps(env_template),
-    #                                                         structure={"json": None})
-    # res = (await monica_service.run(env=capnp_env)).result
 
     year_to_co2 = {}
     def co2_f(year):
@@ -146,56 +140,21 @@ async def main():
                 ts_header = (await ts_cap.header()).header
                 ts_range = await ts_cap.range()
                 ts_data = (await ts_cap.dataT()).data
-                data_ = {
-                    "startDate": f"{ts_range.startDate.year:04d}-{ts_range.startDate.month:02d}-{ts_range.startDate.day:02d}",
-                    "endDate": f"{ts_range.endDate.year:04d}-{ts_range.endDate.month:02d}-{ts_range.endDate.day:02d}",
-                    "data": defaultdict(list),
-                }
-                for i, h in enumerate(ts_header):
-                    if h == "tmin":
-                        data_["data"]["3"] = list(ts_data[i])
-                    elif h == "tavg":
-                        data_["data"]["4"] = list(ts_data[i])
-                    elif h == "tmax":
-                        data_["data"]["5"] = list(ts_data[i])
-                    elif h == "precip":
-                        data_["data"]["6"] = list(ts_data[i])
-                    elif h == "relhumid":
-                        data_["data"]["12"] = list(ts_data[i])
-                    elif h == "wind":
-                        data_["data"]["9"] = list(ts_data[i])
-                    elif h == "globrad":
-                        data_["data"]["8"] = list(ts_data[i])
+                data_ = monica_io.create_env_climate_data_dict_from_capnp_time_series_data(ts_header, ts_range, ts_data)
                 wst_sr_to_caps[data["sr"]]["ts_data"] = data_
             wst_sr_to_caps[data["sr"]]["time_series"] = ts_cap
 
             if wst_sr_to_caps[data["sr"]]["time_series"] is None:
                 print("Could not connect to time series service via sr:", data["sr"])
             lat, lon = data["lat_lon"]
-            soil_profiles = (await soil_service.closestProfilesAt(coord={"lat": lat, "lon": lon}, query={
-                "mandatory": ["soilType", "sand", "clay", "organicCarbon",
-                              "bulkDensity"],
-                "optional": ["pH"]})).profiles
+            soil_profiles = (await soil_service.closestProfilesAt(
+                coord={"lat": lat, "lon": lon},
+                query={"mandatory": ["soilType", "sand", "clay", "organicCarbon", "bulkDensity"],
+                       "optional": ["pH"]})).profiles
             sp_cap = soil_profiles[0]
             if sp_cap is not None and fetch_data:
                 sp_layers = (await sp_cap.data()).layers
-                sp_data = []
-                for layer in sp_layers:
-                    layer_desc = {"Thickness": [layer.size, "m"]}
-                    for prop in layer.properties:
-                        if prop.name == "soilType" and prop.which == "type":
-                            layer_desc["KA5TextureClass"] = prop.type
-                        elif prop.name == "sand" and prop.which == "f32Value":
-                            layer_desc["Sand"] = prop.f32Value / 100.0
-                        elif prop.name == "clay" and prop.which == "f32Value":
-                            layer_desc["Clay"] = prop.f32Value / 100.0
-                        elif prop.name == "organicCarbon" and prop.which == "f32Value":
-                            layer_desc["SoilOrganicCarbon"] = [prop.f32Value, "%"]
-                        elif prop.name == "bulkDensity" and prop.which == "f32Value":
-                            layer_desc["SoilBulkDensity"] = [prop.f32Value, "kg/m^3"]
-                        elif prop.name == "pH" and prop.which == "f32Value":
-                            layer_desc["pH"] = [prop.f32Value, "pH"]
-                    sp_data.append(layer_desc)
+                sp_data = soil_io.create_env_soil_profile_entry_from_capnp_soil_layers(sp_layers)
                 wst_sr_to_caps[data["sr"]]["sp_data"] = sp_data
             wst_sr_to_caps[data["sr"]]["soil_profile"] = sp_cap
 
@@ -266,20 +225,19 @@ async def main():
             socket.send_json(env_template)
             res_json = socket.recv_json()
         else:
-            rr = monica_service.run_request()
-            env = rr.init("env")
-            env.timeSeries = time_series_cap
-            env.soilProfile = wst_sr_to_caps[var["sr"]]["soil_profile"]
-            env.rest = common_capnp.StructuredText.new_message(value=json.dumps(env_template),
-                                                               structure={"json": None})
-            res = (await rr.send()).result
-            st = res.as_struct(common_capnp.StructuredText)
+            capnp_env = {
+                "timeSeries": time_series_cap,
+                "soilProfile": wst_sr_to_caps[var["sr"]]["soil_profile"],
+                "rest": common_capnp.StructuredText.new_message(value=json.dumps(env_template),
+                                                                structure={"json": None})
+            }
+            res = (await monica_service.run(capnp_env)).result
             stv = res.as_struct(common_capnp.StructuredText).value
-            print(stv)
-            print("len(stv):", len(stv))
+            #print(stv)
+            #print("len(stv):", len(stv))
             res_json = json.loads(stv)
 
-        csvs = create_csv(res_json, delimiter=";", round_ids={
+        csvs = monica_io.create_csv_strings_from_json_result(res_json, delimiter=";", round_ids={
             "Act_ET": 2,
             "ActTransp_mm": 2,
             "ActEvap_mm": 2,
@@ -305,30 +263,6 @@ async def main():
         print("Variant:", v, "->", env_template["customId"], "done")
 
     print("done")
-
-def create_csv(msg, delimiter=",", include_header_row=True, include_units_row=True, include_time_agg=False,
-               round_ids=None):
-    out = []
-
-    for section in msg.get("data", []):
-        results = section.get("results", [])
-        orig_spec = section.get("origSpec", "")
-        output_ids = section.get("outputIds", [])
-
-        sio = StringIO()
-        writer = csv.writer(sio, delimiter=delimiter)
-
-        if len(results) > 0:
-            for row in monica_io.write_output_header_rows(output_ids,
-                                                          include_header_row=include_header_row,
-                                                          include_units_row=include_units_row,
-                                                          include_time_agg=include_time_agg):
-                writer.writerow(row)
-            for row in monica_io.write_output(output_ids, results, round_ids=round_ids):
-                writer.writerow(row)
-
-        out.append((orig_spec.replace("\"", ""), sio.getvalue()))
-    return out
 
 
 if __name__ == '__main__':
